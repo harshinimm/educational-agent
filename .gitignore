@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# personal study data — auto-created on first run, not shared via git
+data/study_log.db
+data/concepts.csv
+data/flashcards.csv
+data/photos/
