@@ -20,6 +20,7 @@ import content
 import db
 import dkt
 import generate
+import rl_tutor
 import scheduler
 import tutor_policy
 
@@ -536,6 +537,58 @@ def page_tutor_policy():
     st.bar_chart(scores_df.set_index("concept")["score"])
 
 
+# ------------------------------------------------------------ RL Tutor ----
+
+def page_rl_tutor():
+    st.header("RL Tutor")
+    st.caption(
+        "A real Q-learning agent (small DQN), trained inside a simulator built from each "
+        "concept's own fitted BKT parameters — real interaction data (a few hundred rows) "
+        "isn't enough to train an RL agent directly, so BKT's P(L0)/P(T)/P(S)/P(G) act as a "
+        "generative model of a student answering and learning, exactly the 'model of your "
+        "own learning' the RL tutor is meant to train inside. State = P(known) per concept; "
+        "action = which concept to study next; reward = the mastery gain from that step."
+    )
+
+    if st.button("Train RL tutor", type="primary"):
+        with st.spinner("Training a DQN against the BKT simulator..."):
+            try:
+                q_net, env = rl_tutor.train_dqn()
+                st.session_state.rl_qnet = q_net
+                st.session_state.rl_env = env
+                st.session_state.rl_eval = rl_tutor.evaluate(q_net, env)
+            except Exception as e:
+                st.error(f"Training failed: {e}")
+                return
+
+    q_net = st.session_state.get("rl_qnet")
+    env = st.session_state.get("rl_env")
+    eval_result = st.session_state.get("rl_eval")
+    if not q_net:
+        return
+
+    st.subheader("Policy comparison (simulated study sessions)")
+    st.caption(
+        "Average final mean P(known) across concepts after a 20-step simulated session, "
+        "higher is better. 'Greedy weakest-first' can underperform random — it gets stuck "
+        "grinding on low-learn-rate concepts instead of spreading effort where it pays off."
+    )
+    comp_df = pd.DataFrame(
+        [("Random", eval_result["random"]),
+         ("Greedy weakest-first", eval_result["greedy_weakest"]),
+         ("RL agent (trained)", eval_result["rl_agent"])],
+        columns=["policy", "avg_final_mastery"],
+    )
+    st.bar_chart(comp_df.set_index("policy")["avg_final_mastery"])
+    st.dataframe(comp_df, width="stretch", hide_index=True)
+
+    st.subheader("What the trained agent recommends right now")
+    concept, q_values = rl_tutor.recommend_next_real(q_net, env.concepts)
+    st.write(f"**{concept}**")
+    q_df = pd.DataFrame({"concept": env.concepts, "Q-value": q_values})
+    st.bar_chart(q_df.set_index("concept")["Q-value"])
+
+
 # --------------------------------------------------------------- Stats ----
 
 def page_stats():
@@ -573,6 +626,7 @@ PAGES = {
     "Review Queue": page_review_queue,
     "Model Comparison": page_model_comparison,
     "What to Study Next": page_tutor_policy,
+    "RL Tutor": page_rl_tutor,
     "Manage Concepts": page_manage_concepts,
     "Manage Flashcards": page_manage_flashcards,
     "Stats": page_stats,

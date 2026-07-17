@@ -8,6 +8,36 @@ Newest entries on top. One entry per session/finding; doesn't need to be polishe
 
 ---
 
+## 2026-07-17 — Added a real RL tutor (rl_tutor.py)
+
+Reconsidered the earlier scope cut: `tutor_policy.py` is a heuristic, not
+RL (no value function, nothing learned from reward — just a formula
+recomputed fresh each call). Decided it was worth building genuine RL
+given the time was there, and found a shortcut that reuses code already
+built: each concept's *fitted* BKT parameters (P(L0), P(T), P(S), P(G))
+are already a generative model of how a student answers and learns that
+concept — so instead of standing up a separate DKT-based simulator, BKT
+itself is the simulator. Real interaction data (~350 rows) isn't enough to
+train an RL agent directly; simulated rollouts are.
+
+Environment: state = P(known) vector across concepts, action = which
+concept to study next, reward = mastery gain from that one step (`new
+P(known) - old P(known)`, via `bkt.forward_update`, the same function the
+Knowledge Tracing page uses). Trained a small DQN (2-layer MLP, experience
+replay, epsilon-greedy) — 300 simulated episodes trains in a few seconds
+on CPU.
+
+Result on the seeded data: RL agent 0.364 average final mastery vs random
+0.341 vs greedy-weakest-first 0.329 — greedy-weakest actually loses to
+random. Makes sense once you think about it: concepts differ in learn
+rate, so the concept with the lowest P(known) isn't always the one with
+the best expected return per study step — a "hard" concept with P(T)=0.07
+can look most urgent while paying back the least per unit of study time.
+Greedy-weakest has no way to see that; the learned Q-function does, at
+least partially. Good, honest, explainable RL result — not a huge margin,
+but a real and directionally-correct one, reported as such rather than
+oversold.
+
 ## 2026-07-17 — Pivot to a 4-day hackathon build
 
 Plans changed: this is now a hackathon submission due 2026-07-21 (deployed
