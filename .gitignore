@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 streamlit.log
+.env
 
 # real photographed PYP attempts aren't demo content — keep the folder, not its contents
 data/photos/*
