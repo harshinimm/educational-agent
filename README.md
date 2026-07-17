@@ -1,10 +1,75 @@
-# Study Agent — Phase 0: The Logging Skeleton
+# Study Agent — an O-Level Chemistry learning companion
 
-A minimal study loop with no ML in it. The point of this phase is to
-generate real interaction history — flashcard reviews and photographed
-handwritten paper attempts — that later phases (Bayesian Knowledge
-Tracing, a hand-rolled LSTM, a CNN handwriting grader, an RL tutor) will
-train and evaluate on. Ugly is fine; functional is the bar.
+A study app that models what you actually know, tells you what to review
+and when, and generates flashcards, flowcharts, and mock exam papers
+grounded in your own notes and targeted at your weak spots — not a
+flashcard app with an LLM bolted on, but a small pipeline of from-scratch
+ML components feeding into a thin LLM layer at the end.
+
+**Live demo:** _add your Streamlit Community Cloud URL here_
+**Demo video:** _add your video link here_
+
+## Why this exists
+
+Most "AI study tools" are a prompt wrapped around a chat model. This
+project instead builds the actual components a real adaptive tutor needs,
+from scratch, and only reaches for an LLM at the very last, thin layer —
+once there's something real to ground it in:
+
+```
+You study (flashcards, past-paper attempts)
+        │
+        ▼
+[Interaction log]  SQLite: timestamp, concept, correct, time taken
+        │
+        ├──► [Bayesian Knowledge Tracing]  per-concept P(known), from scratch
+        │            │
+        │            ├──► [Forgetting-curve scheduler]  review when predicted recall ≈ 90%
+        │            │
+        │            └──► [Adaptive tutor policy]  mastery + urgency + exploration → what to study next
+        │
+        ├──► [Deep Knowledge Tracing]  small LSTM, benchmarked against BKT
+        │
+        ▼
+[Retriever]  hand-rolled TF-IDF + cosine similarity over your notes, concept-filtered
+        │
+        ▼
+[Claude — generation layer, last, thin]  flashcards / flowcharts / question papers,
+ grounded in retrieved notes, targeted at concepts the tutor policy flags as weak
+```
+
+## What's implemented
+
+| Component | What it is | File |
+|---|---|---|
+| Interaction log | SQLite table logging every study attempt | `db.py` |
+| Study loop | Flashcard review + photographed paper-attempt logging | `app.py` |
+| **Knowledge tracing (BKT)** | 2-state HMM per concept, hand-rolled forward update + grid-search parameter fit, evaluated by AUC | `bkt.py` |
+| **Forgetting-curve scheduler** | Exponential recall decay from BKT mastery; flags concepts due for review | `scheduler.py` |
+| **Retrieval** | TF-IDF + cosine similarity over a per-concept notes corpus — no vector DB, no RAG library | `retriever.py` |
+| **Deep Knowledge Tracing** | Small PyTorch LSTM, masked BCE loss, evaluated on a strict chronological held-out split | `dkt.py` |
+| **Adaptive tutor policy** | Mastery/urgency/exploration-weighted "what to study next" — a lightweight stand-in for a full RL tutor | `tutor_policy.py` |
+| **Generation (LLM, last)** | Claude drafts flashcards, process flowcharts, and mock question papers — all grounded in retrieved notes, all reviewed before saving | `generate.py` |
+
+Cut from scope for the 4-day build: a CNN handwriting grader (would only
+have been a disconnected MNIST demo without a real labeled dataset of the
+user's handwriting) and full RL-in-a-DKT-simulator (the tutor policy above
+is the honest, shippable version of that idea).
+
+## Try it
+
+The app ships with a seeded synthetic O-Level Chemistry dataset — 25
+syllabus concepts, ~5 weeks of simulated study history with deliberately
+varied mastery per concept, and a small notes corpus — so every page has
+real signal from the moment you open it.
+
+1. **Knowledge Tracing** — see per-concept mastery and the BKT baseline AUC.
+2. **Review Queue** — concepts flagged for review as predicted recall decays.
+3. **Model Comparison** — train the DKT LSTM live and compare it to BKT.
+4. **What to Study Next** — the adaptive policy's current top pick.
+5. **Generate** — the headline feature: pick "Question Paper" mode and
+   watch the weakest concepts (from BKT) get pre-selected, grounded in
+   retrieved notes, and turned into a gradeable mock exam.
 
 ## Setup
 
@@ -12,48 +77,23 @@ train and evaluate on. Ugly is fine; functional is the bar.
 python -m venv .venv
 source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python seed_data.py             # populate the demo dataset (safe to re-run)
 streamlit run app.py
 ```
 
-## What's in here
+The Generate page needs an Anthropic API key — paste one into the sidebar,
+or set `ANTHROPIC_API_KEY` as an environment variable.
 
-- `app.py` — the Streamlit UI (Study, Cold-Start Diagnostic, Manage
-  Concepts, Manage Flashcards, Stats).
-- `db.py` — SQLite schema and access for the interaction log
-  (`data/study_log.db`, table `interactions`: timestamp, concept,
-  question_id, correct, time_taken_seconds, photo_path). This schema is
-  the dataset every later phase depends on — don't change it casually.
-- `content.py` — CSV-backed concept list and flashcard bank
-  (`data/concepts.csv`, `data/flashcards.csv`), both hand-edited via the
-  app's Manage pages.
-- `data/photos/` — photographed handwritten attempts, referenced by
-  `photo_path` in the log.
+## Deployment
 
-All of `data/` is gitignored (it's personal study content, auto-created on
-first run) except `data/photos/.gitkeep`, which keeps the folder in git.
+Deployed on Streamlit Community Cloud, connected to this repo's `main`
+branch. `ANTHROPIC_API_KEY` is set as a Cloud secret so the Generate page
+works with zero setup for anyone trying the live demo; the max-cards /
+max-questions sliders are capped low across all three Generate modes to
+bound cost on a public, unauthenticated deploy.
 
-## Using it
+## Origins
 
-1. **Manage Concepts**: list the topics in your syllabus (30–80, flat list).
-2. **Manage Flashcards**: add manual flashcards per concept (LLM-generated
-   cards come in a much later phase, deliberately).
-3. **Cold-Start Diagnostic**: run once, a single pass across every
-   concept, so the first models (Phase 1+) aren't starting from nothing.
-4. **Study** daily: flashcard mode for digital review, or "Paper / PYP
-   attempt" mode when you work a past-paper question on actual paper —
-   snap the working with the camera, mark it, done in about ten extra
-   seconds per question.
-5. **Stats**: naive per-concept accuracy — the bar every later model
-   (BKT, then DKT) has to beat.
-
-## Checkpoint (from the guide)
-
-Study with it for ≥1 week. The log should have a few hundred rows and a
-few dozen photos before moving to Phase 1 (BKT). Record in
-[LAB_NOTEBOOK.md](LAB_NOTEBOOK.md) what's annoying about the UX and what
-naive per-concept accuracy looks like.
-
-## Next
-
-Phase 1 — Bayesian Knowledge Tracing, from scratch, on the log this phase
-produces.
+This started as a personal, multi-semester "build every ML component from
+scratch" project — see [LAB_NOTEBOOK.md](LAB_NOTEBOOK.md) for the running
+build log, including the pivot to a 4-day hackathon scope.
