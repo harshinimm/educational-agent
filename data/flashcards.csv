@@ -1,0 +1,26 @@
+id,concept,question,answer
+72a46a1b,Kinetic Particle Theory,What happens to particle spacing and energy on heating a solid?,Particles vibrate more and gain kinetic energy; spacing increases until the lattice breaks down (melting).
+c53718a7,Atomic Structure,How do isotopes of the same element differ?,They have the same proton number but different neutron numbers (different nucleon number).
+47a7458f,Chemical Bonding - Ionic,Why do ionic compounds conduct electricity only when molten or aqueous?,Ions are fixed in a rigid lattice in the solid state; melting or dissolving frees them to move and carry charge.
+f38b6bd9,Chemical Bonding - Covalent,Why does diamond have a very high melting point?,It's a giant covalent structure — every atom is bonded to 4 others by strong covalent bonds that require huge energy to break.
+94c81b2b,Chemical Bonding - Metallic,Why are metals malleable?,Layers of metal ions can slide over each other while the delocalised electron sea keeps the structure held together.
+d21b6f0e,Formulae and Equations,Why must equations be balanced?,To conserve atoms of each element — mass cannot be created or destroyed in a chemical reaction.
+d6ff2b71,The Mole Concept,How many particles are in 1 mole of a substance?,6.02 x 10^23 (Avogadro's number).
+eb8fe2e4,Stoichiometry Calculations,How do you find the limiting reagent?,Compare mole ratios of reactants available to the balanced equation's required ratio; the one that runs out first is limiting.
+367afcc5,Acids and Bases,What ion do all acids release in water?,H+ (hydrogen ions).
+6b654fe4,Salts and Preparation of Salts,How do you prepare an insoluble salt?,By precipitation — mixing two soluble solutions whose ions combine to form the insoluble salt.
+467056a9,Qualitative Analysis (Tests for Ions and Gases),How do you test for carbon dioxide gas?,Bubble through limewater — it turns milky/cloudy.
+64a009ce,Redox Reactions,What happens to the oxidising agent in a redox reaction?,It gains electrons (is reduced).
+262fa559,Electrolysis,Which electrode do cations move to and what happens there?,The cathode; they are reduced (gain electrons).
+7a18eb4d,Energy Changes,Is bond breaking exothermic or endothermic?,Endothermic — energy must be absorbed to break bonds.
+dcf04c32,Rate of Reaction,Why does increasing temperature increase reaction rate?,"Particles move faster, collide more often, and more collisions exceed the activation energy."
+ff3d4299,Reversible Reactions and Equilibrium,What does Le Chatelier's principle predict?,"The system shifts to oppose an imposed change, e.g. increasing pressure shifts equilibrium toward fewer gas molecules."
+a0afa9df,Periodic Table Trends,Why do elements in the same group have similar properties?,They have the same number of electrons in their outer shell.
+d662c5f7,Metals and the Reactivity Series,What does the reactivity series predict?,"Which metals can displace others from compounds, and how vigorously a metal reacts with water/acid/oxygen."
+a68a118b,Extraction of Metals,How is a very reactive metal like aluminium extracted?,"By electrolysis, since it's too reactive to be reduced by carbon."
+8d206f36,Chemistry of Air and the Environment,What causes acid rain?,Sulfur dioxide and nitrogen oxides dissolving in atmospheric water to form acidic solutions.
+1a89c8c4,Chemistry of Water,How do you test for the presence of water?,Anhydrous copper(II) sulfate turns from white to blue.
+b4e822f5,Organic Chemistry - Alkanes and Alkenes,How can you distinguish an alkene from an alkane?,"Add bromine water — alkenes decolourise it, alkanes do not."
+2aebc336,Organic Chemistry - Alcohols and Carboxylic Acids,What forms when a carboxylic acid reacts with an alcohol?,"An ester (plus water), via esterification."
+2c5939ea,Polymers,What's the difference between addition and condensation polymerisation?,Addition polymers form with no loss of atoms; condensation polymers form with loss of a small molecule like water.
+03a7d58a,Experimental Design and Techniques,Why is a control variable important in an experiment?,It isolates the effect of the independent variable so the result can be attributed to it alone.

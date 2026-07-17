@@ -15,8 +15,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+import bkt
 import content
 import db
+import dkt
+import generate
+import scheduler
+import tutor_policy
 
 PHOTOS_DIR = Path(__file__).parent / "data" / "photos"
 
@@ -39,7 +44,8 @@ def photo_capture_widget(key_prefix):
     photo = st.camera_input("Snap your working", key=f"{key_prefix}_camera")
     if photo is None:
         photo = st.file_uploader(
-            "...or upload an existing photo instead", type=["jpg", "jpeg", "png"], key=f"{key_prefix}_upload"
+            "...or upload an existing photo or PDF instead", type=["jpg", "jpeg", "png", "pdf"],
+            key=f"{key_prefix}_upload"
         )
     return photo
 
@@ -99,11 +105,11 @@ def _study_flashcard(concepts):
     else:
         st.info(card["answer"])
         col1, col2 = st.columns(2)
-        if col1.button("✅ Correct", use_container_width=True):
+        if col1.button("✅ Correct", width="stretch"):
             log_and_reset(card["concept"], card["id"], True, st.session_state.card_start, None,
                           ["card", "show_answer", "card_start"])
             st.rerun()
-        if col2.button("❌ Incorrect", use_container_width=True):
+        if col2.button("❌ Incorrect", width="stretch"):
             log_and_reset(card["concept"], card["id"], False, st.session_state.card_start, None,
                           ["card", "show_answer", "card_start"])
             st.rerun()
@@ -184,18 +190,157 @@ def page_diagnostic():
 
     photo = photo_capture_widget("diag")
     col1, col2 = st.columns(2)
-    if col1.button("✅ Correct", use_container_width=True, key="diag_correct"):
+    if col1.button("✅ Correct", width="stretch", key="diag_correct"):
         log_and_reset(concept, question_id, True, st.session_state.diag_start, photo, [])
         st.session_state.diag_idx += 1
         st.session_state.pop("diag_start", None)
         st.session_state.pop("diag_show_answer", None)
         st.rerun()
-    if col2.button("❌ Incorrect", use_container_width=True, key="diag_incorrect"):
+    if col2.button("❌ Incorrect", width="stretch", key="diag_incorrect"):
         log_and_reset(concept, question_id, False, st.session_state.diag_start, photo, [])
         st.session_state.diag_idx += 1
         st.session_state.pop("diag_start", None)
         st.session_state.pop("diag_show_answer", None)
         st.rerun()
+
+
+# ------------------------------------------------------ Generate (LLM) ----
+
+def page_generate():
+    st.header("Generate")
+    st.caption(
+        "Claude drafts study material grounded in your notes/uploads and your own concept "
+        "list — nothing is saved until you review and approve it."
+    )
+    concepts = content.list_concepts()
+    if not concepts:
+        st.warning("Add concepts first on **Manage Concepts** — generated material must tag one of them.")
+        return
+
+    api_key = st.sidebar.text_input(
+        "Anthropic API key", type="password",
+        help="Falls back to the ANTHROPIC_API_KEY environment variable if left blank.",
+    )
+
+    mode = st.radio("Mode", ["Flashcards", "Flowchart", "Question Paper"], horizontal=True)
+
+    if mode == "Flashcards":
+        _generate_flashcards(concepts, api_key)
+    elif mode == "Flowchart":
+        _generate_flowchart(concepts, api_key)
+    else:
+        _generate_question_paper(concepts, api_key)
+
+
+def _generate_flashcards(concepts, api_key):
+    source = st.radio("Source", ["Upload a document", "From your notes corpus"], horizontal=True)
+    n_cards = st.slider("Number of cards to draft", 1, 10, 5)
+
+    if source == "Upload a document":
+        uploaded = st.file_uploader("Notes / PYP (PDF, image, or text)", type=["pdf", "png", "jpg", "jpeg", "txt"])
+        can_generate = uploaded is not None
+    else:
+        concept = st.selectbox("Concept", concepts, key="corpus_flashcard_concept")
+        can_generate = True
+
+    if st.button("Draft flashcards", type="primary", disabled=not can_generate):
+        with st.spinner("Drafting..."):
+            try:
+                if source == "Upload a document":
+                    cards = generate.draft_flashcards(uploaded, concepts, api_key, n_cards)
+                else:
+                    cards = generate.draft_flashcards_from_corpus(concept, api_key, n_cards)
+                for c in cards:
+                    c["include"] = True
+                st.session_state.drafted_cards = cards
+            except Exception as e:
+                st.error(f"Generation failed: {e}")
+                return
+
+    drafted = st.session_state.get("drafted_cards")
+    if not drafted:
+        return
+
+    st.subheader("Review before saving")
+    edited = st.data_editor(
+        drafted,
+        column_config={
+            "include": st.column_config.CheckboxColumn("Include"),
+            "concept": st.column_config.SelectboxColumn("Concept", options=concepts),
+            "question": st.column_config.TextColumn("Question", width="large"),
+            "answer": st.column_config.TextColumn("Answer", width="large"),
+        },
+        column_order=["include", "concept", "question", "answer"],
+        width="stretch",
+        num_rows="fixed",
+        key="drafted_editor",
+    )
+
+    if st.button("Add approved cards to flashcard bank"):
+        added = 0
+        for row in edited:
+            if row.get("include") and row.get("question", "").strip() and row.get("answer", "").strip():
+                content.add_flashcard(row["concept"], row["question"].strip(), row["answer"].strip())
+                added += 1
+        st.session_state.pop("drafted_cards", None)
+        st.success(f"Added {added} card(s).")
+        st.rerun()
+
+
+def _generate_flowchart(concepts, api_key):
+    concept = st.selectbox("Concept", concepts, key="flowchart_concept")
+    if st.button("Draft flowchart", type="primary"):
+        with st.spinner("Drafting..."):
+            try:
+                st.session_state.drafted_flowchart = generate.draft_flowchart(concept, api_key)
+            except Exception as e:
+                st.error(f"Generation failed: {e}")
+                return
+
+    result = st.session_state.get("drafted_flowchart")
+    if not result:
+        return
+
+    st.subheader(concept)
+    st.write(result["explanation"])
+    try:
+        st.graphviz_chart(result["dot_source"])
+    except Exception:
+        st.error("Claude's diagram wasn't valid DOT syntax — here's the raw source instead.")
+        st.code(result["dot_source"])
+
+
+def _generate_question_paper(concepts, api_key):
+    st.caption("Concepts you're weakest on (per BKT) are pre-selected — add or remove before generating.")
+    default_weak = tutor_policy.weakest_concepts(min(5, len(concepts)))
+    selected = st.multiselect("Concepts to cover", concepts, default=default_weak, key="paper_concepts")
+    n_questions = st.slider("Number of questions", 3, 8, 5)
+
+    if st.button("Draft question paper", type="primary", disabled=not selected):
+        with st.spinner("Drafting..."):
+            try:
+                st.session_state.drafted_paper = generate.draft_question_paper(selected, api_key, n_questions)
+            except Exception as e:
+                st.error(f"Generation failed: {e}")
+                return
+
+    paper = st.session_state.get("drafted_paper")
+    if not paper:
+        return
+
+    show_answers = st.checkbox("Show mark scheme / model answers")
+    st.subheader("Question Paper")
+    lines = ["# O-Level Chemistry — Generated Question Paper", ""]
+    for i, q in enumerate(paper, start=1):
+        st.markdown(f"**Q{i}. [{q['concept']}] ({q['marks']} marks)**  \n{q['question']}")
+        lines += [f"Q{i}. [{q['concept']}] ({q['marks']} marks)", "", q["question"], ""]
+        if show_answers:
+            st.info(q["model_answer"])
+        lines += ["Model answer:", q["model_answer"], ""]
+
+    st.download_button(
+        "Download as Markdown", "\n".join(lines), file_name="question_paper.md", mime="text/markdown"
+    )
 
 
 # --------------------------------------------------------- Manage content ----
@@ -248,6 +393,149 @@ def page_manage_flashcards():
                 st.rerun()
 
 
+# ---------------------------------------------------- Knowledge Tracing ----
+
+def page_knowledge_tracing():
+    st.header("Knowledge Tracing (BKT)")
+    st.caption(
+        "A from-scratch Bayesian Knowledge Tracing model, fit per concept from your "
+        "interaction log. P(known) is the model's current belief you've mastered a "
+        "concept; AUC is how well it predicts your next answer — the bar any later "
+        "model (DKT) has to beat."
+    )
+    results = bkt.evaluate_all_concepts()
+    if not results:
+        st.info("Not enough interactions yet — need at least 3 per concept. "
+                 "Run `python seed_data.py` for demo data, or go study something.")
+        return
+
+    rows = []
+    for concept, r in results.items():
+        rows.append({
+            "concept": concept,
+            "attempts": r["n"],
+            "P(known)": round(r["final_p_known"], 3),
+            "naive_accuracy": round(r["naive_accuracy"], 3),
+            "AUC": round(r["auc"], 3) if r["auc"] is not None else None,
+        })
+    df = pd.DataFrame(rows).sort_values("P(known)")
+
+    aucs = df["AUC"].dropna()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Concepts modeled", len(df))
+    col2.metric("Mean BKT AUC", f"{aucs.mean():.3f}" if len(aucs) else "n/a")
+    col3.metric("Concepts below 60% mastery", int((df["P(known)"] < 0.6).sum()))
+
+    st.subheader("P(known) by concept")
+    st.bar_chart(df.set_index("concept")["P(known)"])
+
+    st.subheader("Per-concept detail")
+    st.dataframe(df, width="stretch", hide_index=True)
+
+
+# -------------------------------------------------------- Review Queue ----
+
+def page_review_queue():
+    st.header("Review Queue")
+    st.caption(
+        "Predicted recall decays from each concept's BKT P(known) the longer it's "
+        "been since you last practiced it. Concepts are flagged once predicted "
+        f"recall drops to {int(scheduler.REVIEW_THRESHOLD * 100)}% — review before you actually forget."
+    )
+    queue = scheduler.review_queue()
+    if not queue:
+        st.info("Not enough data yet — need at least 3 interactions per concept for BKT to fit it.")
+        return
+
+    df = pd.DataFrame(queue)
+    due = df[df["due"]]
+
+    col1, col2 = st.columns(2)
+    col1.metric("Concepts due for review", len(due))
+    col2.metric("Concepts tracked", len(df))
+
+    st.subheader("Due now, most urgent first")
+    if due.empty:
+        st.success("Nothing due — you're caught up.")
+    else:
+        st.dataframe(
+            due[["concept", "p_known", "days_since_review", "predicted_recall"]],
+            width="stretch", hide_index=True,
+        )
+
+    st.subheader("Predicted recall, all tracked concepts")
+    st.bar_chart(df.set_index("concept")["predicted_recall"])
+
+
+# ---------------------------------------------------- Model Comparison ----
+
+def page_model_comparison():
+    st.header("Model Comparison")
+    st.caption(
+        "Naive per-concept accuracy vs BKT vs DKT. BKT's AUC is the mean of each "
+        "concept's own causal next-answer prediction across its full history; DKT's "
+        "AUC is on a held-out chronological tail of the whole log (last ~20%, never "
+        "shuffled) — the evaluation windows differ slightly, noted here for honesty "
+        "rather than presented as identical."
+    )
+    bkt_results = bkt.evaluate_all_concepts()
+    if not bkt_results:
+        st.info("Not enough data yet — need at least 3 interactions per concept.")
+        return
+
+    bkt_aucs = [r["auc"] for r in bkt_results.values() if r["auc"] is not None]
+    bkt_mean_auc = sum(bkt_aucs) / len(bkt_aucs) if bkt_aucs else None
+    naive_mean = sum(r["naive_accuracy"] for r in bkt_results.values()) / len(bkt_results)
+
+    if st.button("Train DKT and evaluate", type="primary"):
+        with st.spinner("Training a small LSTM on your interaction log..."):
+            try:
+                st.session_state.dkt_result = dkt.train_and_evaluate()
+            except Exception as e:
+                st.error(f"DKT training failed: {e}")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Naive accuracy (mean)", f"{naive_mean:.3f}")
+    col2.metric("BKT mean AUC", f"{bkt_mean_auc:.3f}" if bkt_mean_auc is not None else "n/a")
+    dkt_result = st.session_state.get("dkt_result")
+    col3.metric("DKT held-out AUC",
+                f"{dkt_result['auc']:.3f}" if dkt_result and dkt_result["auc"] is not None else "not trained yet")
+
+    if dkt_result:
+        st.caption(
+            f"Trained on the first {dkt_result['n_train']} interactions; evaluated on the "
+            f"trailing {dkt_result['n_test']} (naive accuracy on that same held-out slice: "
+            f"{dkt_result['naive_accuracy']:.3f})."
+        )
+
+
+# -------------------------------------------------------- Tutor Policy ----
+
+def page_tutor_policy():
+    st.header("What to Study Next")
+    st.caption(
+        "A lightweight adaptive policy — not the guide's full RL tutor (that needs a "
+        "trustworthy DKT to simulate against), but a real mastery/urgency/exploration-"
+        "driven scheduler that adapts as your interaction log grows."
+    )
+    if st.button("Recommend a concept", type="primary"):
+        st.session_state.tutor_pick = tutor_policy.recommend_next()
+
+    pick = st.session_state.get("tutor_pick")
+    if not pick:
+        return
+
+    st.subheader(pick["concept"])
+    st.write(f"**Why:** {pick['reason']}")
+    st.metric("Priority score", f"{pick['score']:.3f}")
+
+    st.subheader("All concept scores")
+    scores_df = pd.DataFrame(
+        sorted(pick["all_scores"].items(), key=lambda kv: -kv[1]), columns=["concept", "score"]
+    )
+    st.bar_chart(scores_df.set_index("concept")["score"])
+
+
 # --------------------------------------------------------------- Stats ----
 
 def page_stats():
@@ -268,11 +556,11 @@ def page_stats():
     st.subheader("Naive per-concept accuracy")
     acc = pd.DataFrame(db.concept_accuracy())
     acc["accuracy"] = (acc["correct"] / acc["attempts"]).round(3)
-    st.dataframe(acc[["concept", "attempts", "accuracy", "avg_time_seconds"]], use_container_width=True)
+    st.dataframe(acc[["concept", "attempts", "accuracy", "avg_time_seconds"]], width="stretch")
     st.bar_chart(acc.set_index("concept")["accuracy"])
 
     with st.expander("Raw log"):
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
 
 
 # ---------------------------------------------------------------- Nav ----
@@ -280,6 +568,11 @@ def page_stats():
 PAGES = {
     "Study": page_study,
     "Cold-Start Diagnostic": page_diagnostic,
+    "Generate": page_generate,
+    "Knowledge Tracing": page_knowledge_tracing,
+    "Review Queue": page_review_queue,
+    "Model Comparison": page_model_comparison,
+    "What to Study Next": page_tutor_policy,
     "Manage Concepts": page_manage_concepts,
     "Manage Flashcards": page_manage_flashcards,
     "Stats": page_stats,

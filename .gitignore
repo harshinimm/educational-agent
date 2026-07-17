@@ -2,9 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+streamlit.log
 
-# personal study data — auto-created on first run, not shared via git
-data/study_log.db
-data/concepts.csv
-data/flashcards.csv
-data/photos/
+# real photographed PYP attempts aren't demo content — keep the folder, not its contents
+data/photos/*
+!data/photos/.gitkeep
