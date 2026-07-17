@@ -36,7 +36,7 @@ You study (flashcards, past-paper attempts)
 [Retriever]  hand-rolled TF-IDF + cosine similarity over your notes, concept-filtered
         │
         ▼
-[Claude — generation layer, last, thin]  flashcards / flowcharts / question papers,
+[OpenAI GPT — generation layer, last, thin]  flashcards / flowcharts / question papers,
  grounded in retrieved notes, targeted at concepts the tutor/RL policy flags as weak
 ```
 
@@ -52,7 +52,7 @@ You study (flashcards, past-paper attempts)
 | **Deep Knowledge Tracing** | Small PyTorch LSTM, masked BCE loss, evaluated on a strict chronological held-out split | `dkt.py` |
 | **Adaptive heuristic policy** | Mastery/urgency/exploration-weighted "what to study next" — fast, explainable, not learned | `tutor_policy.py` |
 | **RL Tutor** | A real DQN (experience replay, epsilon-greedy), trained inside a simulator built from each concept's own fitted BKT parameters — real interaction data alone isn't enough to train an RL agent, so BKT's P(L0)/P(T)/P(S)/P(G) act as the "model of your own learning" the agent trains against. Beats both a random and a naive greedy-weakest-first baseline in simulated study sessions, because concepts differ in learn rate — greedy-weakest can get stuck grinding on a low-P(T) concept for poor return | `rl_tutor.py` |
-| **Generation (LLM, last)** | Claude drafts flashcards, process flowcharts, and mock question papers — all grounded in retrieved notes, all reviewed before saving | `generate.py` |
+| **Generation (LLM, last)** | OpenAI (GPT) drafts flashcards, process flowcharts, and mock question papers — all grounded in retrieved notes, all reviewed before saving | `generate.py` |
 
 Cut from scope for the 4-day build: a CNN handwriting grader — would only
 have been a disconnected MNIST demo without a real labeled dataset of the
@@ -85,13 +85,13 @@ python seed_data.py             # populate the demo dataset (safe to re-run)
 streamlit run app.py
 ```
 
-The Generate page needs an Anthropic API key — paste one into the sidebar,
-or set `ANTHROPIC_API_KEY` as an environment variable.
+The Generate page needs an OpenAI API key — paste one into the sidebar,
+or set `OPENAI_API_KEY` as an environment variable.
 
 ## Deployment
 
 Deployed on Streamlit Community Cloud, connected to this repo's `main`
-branch. `ANTHROPIC_API_KEY` is set as a Cloud secret so the Generate page
+branch. `OPENAI_API_KEY` is set as a Cloud secret so the Generate page
 works with zero setup for anyone trying the live demo; the max-cards /
 max-questions sliders are capped low across all three Generate modes to
 bound cost on a public, unauthenticated deploy.

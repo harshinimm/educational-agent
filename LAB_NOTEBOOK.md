@@ -8,6 +8,27 @@ Newest entries on top. One entry per session/finding; doesn't need to be polishe
 
 ---
 
+## 2026-07-17 — Switched the LLM layer from Claude to OpenAI
+
+Rewrote `generate.py` to call the OpenAI API instead of Anthropic — the
+hackathon expects OpenAI usage specifically (a sponsored-credits track;
+the credits didn't come through, so still blocked on getting an actual
+key). Kept every function signature identical (`draft_flashcards`,
+`draft_flashcards_from_corpus`, `draft_flowchart`, `draft_question_paper`)
+so `app.py` needed zero changes beyond the sidebar label. Structured
+output via `response_format: {type: json_schema, json_schema: {strict:
+true, schema: ...}}` on `chat.completions.create` — same JSON schemas as
+before, just a different wire format to request them in. Added `pypdf`
+for PDF text extraction on upload (OpenAI's chat completions endpoint
+doesn't take raw PDF bytes the way Anthropic's `document` content block
+did, so PDFs get extracted to text client-side instead of sent as base64).
+
+Still unverified end-to-end: no OpenAI key to actually test a live call
+yet. Everything checked so far is code-level (imports clean, all pages
+pass headless AppTest verification) — the real risk (does the structured
+output actually come back well-formed, does PDF extraction work on a real
+scanned paper) is untested until a key exists.
+
 ## 2026-07-17 — Added a real RL tutor (rl_tutor.py)
 
 Reconsidered the earlier scope cut: `tutor_policy.py` is a heuristic, not
