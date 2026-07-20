@@ -8,6 +8,14 @@ Newest entries on top. One entry per session/finding; doesn't need to be polishe
 
 ---
 
+## 2026-07-19 — Switched back to Claude
+
+The OpenAI requirement fell through — no longer needed. Reverted
+`generate.py`, `app.py` (sidebar label), and `requirements.txt` to the
+pre-OpenAI-switch commit (`d62c258`) via `git checkout d62c258 -- ...`
+rather than rewriting by hand, since that exact working version was
+already in history. Anthropic API key, same as before.
+
 ## 2026-07-17 — Switched the LLM layer from Claude to OpenAI
 
 Rewrote `generate.py` to call the OpenAI API instead of Anthropic — the

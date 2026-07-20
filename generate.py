@@ -1,8 +1,7 @@
 """LLM generation layer — thin and last, grounded in retrieved material.
 
-Uses the OpenAI API (switched from Anthropic per the hackathon's
-expectations). Three modes, all requesting structured JSON output so
-results validate cleanly against the app's data model:
+Three modes, all calling Claude with structured output so results validate
+cleanly against the app's data model:
   - Flashcards: from an uploaded document, or from the retrieved notes corpus.
   - Flowchart: a process/mechanism diagram (Graphviz DOT) for one concept.
   - Question Paper: see tutor_policy.py for the weak-area concept selection
@@ -10,55 +9,38 @@ results validate cleanly against the app's data model:
 
 Pulled forward from the guide's Phase 4b (LLM layer, last, thin) at the
 user's request — kept as its own module so it stays a clearly separate,
-swappable layer from the logging/tracing/retrieval underneath it. Function
-signatures are unchanged from the Anthropic version so app.py didn't need
-to change at all.
+swappable layer from the logging/tracing/retrieval underneath it.
 """
 import base64
-import io
 import json
 import os
 
-from openai import OpenAI
+import anthropic
 
 import retriever
 
-MODEL = "gpt-4o"  # swap to the exact model string your hackathon expects (e.g. "gpt-5.6") here
+MODEL = "claude-opus-4-8"
 
 
 def _client(api_key):
-    return OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+    return anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def _file_content_parts(uploaded_file):
+def _file_content_block(uploaded_file):
     media_type = uploaded_file.type or ""
     raw = uploaded_file.getvalue()
     if media_type.startswith("image/"):
         data = base64.standard_b64encode(raw).decode("utf-8")
-        return [{"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}]
+        return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
     if media_type == "application/pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(raw))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        return [{"type": "text", "text": text}]
-    return [{"type": "text", "text": raw.decode("utf-8", errors="ignore")}]
+        data = base64.standard_b64encode(raw).decode("utf-8")
+        return {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data}}
+    return {"type": "text", "text": raw.decode("utf-8", errors="ignore")}
 
 
-def _grounding_text(chunks):
+def _grounding_text_block(chunks):
     joined = "\n\n".join(f"- {c}" for c in chunks)
-    return f"Reference material:\n{joined}"
-
-
-def _structured_call(api_key, content_parts, schema_name, schema):
-    response = _client(api_key).chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": content_parts}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": schema_name, "strict": True, "schema": schema},
-        },
-    )
-    return json.loads(response.choices[0].message.content)
+    return {"type": "text", "text": f"Reference material:\n{joined}"}
 
 
 # ------------------------------------------------------------ Flashcards ----
@@ -100,9 +82,14 @@ def draft_flashcards(uploaded_file, concepts, api_key, n_cards=5):
         f"{', '.join(concepts)}. "
         "Questions should be answerable from the material; keep answers concise."
     )
-    content_parts = _file_content_parts(uploaded_file) + [{"type": "text", "text": prompt}]
-    data = _structured_call(api_key, content_parts, "flashcards", _flashcard_schema(concepts))
-    return data["cards"]
+    response = _client(api_key).messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        output_config={"format": {"type": "json_schema", "schema": _flashcard_schema(concepts)}},
+        messages=[{"role": "user", "content": [_file_content_block(uploaded_file), {"type": "text", "text": prompt}]}],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)["cards"]
 
 
 def draft_flashcards_from_corpus(concept, api_key, n_cards=5):
@@ -112,14 +99,17 @@ def draft_flashcards_from_corpus(concept, api_key, n_cards=5):
         raise ValueError(f"No notes or flashcards found for '{concept}' to ground generation on.")
 
     prompt = (
-        f"{_grounding_text(chunks)}\n\n"
         f"Draft up to {n_cards} flashcards about the concept \"{concept}\" using ONLY the "
-        "reference material above. Tag every card with this exact concept name."
+        "attached reference material. Tag every card with this exact concept name."
     )
-    data = _structured_call(
-        api_key, [{"type": "text", "text": prompt}], "flashcards", _flashcard_schema([concept])
+    response = _client(api_key).messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        output_config={"format": {"type": "json_schema", "schema": _flashcard_schema([concept])}},
+        messages=[{"role": "user", "content": [_grounding_text_block(chunks), {"type": "text", "text": prompt}]}],
     )
-    return data["cards"]
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)["cards"]
 
 
 # ------------------------------------------------------------- Flowchart ----
@@ -143,13 +133,19 @@ def draft_flowchart(concept, api_key):
         raise ValueError(f"No notes or flashcards found for '{concept}' to ground generation on.")
 
     prompt = (
-        f"{_grounding_text(chunks)}\n\n"
-        f"Using ONLY the reference material above, produce a step-by-step process/mechanism "
+        f"Using ONLY the attached reference material, produce a step-by-step process/mechanism "
         f"flowchart for the concept \"{concept}\". Return a short explanation, and separately a "
         "Graphviz DOT digraph (valid DOT syntax, e.g. 'digraph G { A -> B; }') representing the "
         "steps as nodes and arrows. Keep it to 4-8 nodes."
     )
-    return _structured_call(api_key, [{"type": "text", "text": prompt}], "flowchart", _FLOWCHART_SCHEMA)
+    response = _client(api_key).messages.create(
+        model=MODEL,
+        max_tokens=2048,
+        output_config={"format": {"type": "json_schema", "schema": _FLOWCHART_SCHEMA}},
+        messages=[{"role": "user", "content": [_grounding_text_block(chunks), {"type": "text", "text": prompt}]}],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)
 
 
 # --------------------------------------------------------- Question Paper ----
@@ -189,14 +185,19 @@ def draft_question_paper(concepts, api_key, n_questions=5):
         raise ValueError("No notes or flashcards found for the selected concepts to ground generation on.")
 
     prompt = (
-        f"{_grounding_text(grounding_chunks)}\n\n"
         f"Draft a {n_questions}-question mock exam paper covering these concepts: "
-        f"{', '.join(concepts)}. Use ONLY the reference material above as grounding, spread "
+        f"{', '.join(concepts)}. Use ONLY the attached reference material as grounding, spread "
         "questions roughly evenly across the listed concepts, tag each with its exact concept "
         "name, assign sensible marks (2-6), and give a concise model answer for each."
     )
     schema = json.loads(json.dumps(_QUESTION_PAPER_SCHEMA_TEMPLATE))
     schema["properties"]["questions"]["items"]["properties"]["concept"]["enum"] = concepts
 
-    data = _structured_call(api_key, [{"type": "text", "text": prompt}], "question_paper", schema)
-    return data["questions"]
+    response = _client(api_key).messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        output_config={"format": {"type": "json_schema", "schema": schema}},
+        messages=[{"role": "user", "content": [_grounding_text_block(grounding_chunks), {"type": "text", "text": prompt}]}],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)["questions"]

@@ -219,8 +219,8 @@ def page_generate():
         return
 
     api_key = st.sidebar.text_input(
-        "OpenAI API key", type="password",
-        help="Falls back to the OPENAI_API_KEY environment variable if left blank.",
+        "Anthropic API key", type="password",
+        help="Falls back to the ANTHROPIC_API_KEY environment variable if left blank.",
     )
 
     mode = st.radio("Mode", ["Flashcards", "Flowchart", "Question Paper"], horizontal=True)
