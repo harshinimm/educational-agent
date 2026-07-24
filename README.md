@@ -1,4 +1,4 @@
-# Study Agent — an O-Level Chemistry learning companion
+# Study Agent 
 
 A study app that models what you actually know, tells you what to review
 and when, and generates flashcards, flowcharts, and mock exam papers
